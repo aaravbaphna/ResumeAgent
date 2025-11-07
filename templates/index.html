@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Local AI Resume Agent</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #111827; color: #d1d5db; }
+        .glass-panel { background: rgba(31, 41, 55, 0.6); backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, 0.1); }
+        .resume-list-item { transition: background-color 0.2s ease-in-out; }
+        .resume-list-item:hover, .resume-list-item.active { background-color: rgba(75, 85, 99, 0.4); }
+        .feature-btn { transition: all 0.2s ease-in-out; }
+        .feature-btn:hover { transform: translateY(-2px); box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2); }
+        .feature-btn:disabled { transform: none; box-shadow: none; opacity: 0.5; cursor: not-allowed; }
+        #ai-output-container::after { content: '▋'; animation: blink 1s step-end infinite; }
+        @keyframes blink { 50% { opacity: 0; } }
+    </style>
+</head>
+<body class="p-4 sm:p-8">
+
+    <div class="max-w-7xl mx-auto">
+        <header class="text-center mb-10">
+            <h1 class="text-4xl sm:text-5xl font-bold text-white">Local AI Resume Agent</h1>
+            <p class="text-lg text-gray-400 mt-2">Upload a resume to analyze it with your local LLM.</p>
+        </header>
+
+        <div id="upload-section" class="mb-8">
+            <div class="max-w-xl mx-auto glass-panel rounded-lg p-6 text-center">
+                <label for="resume-upload" class="cursor-pointer bg-indigo-600 text-white font-bold py-3 px-6 rounded-lg shadow-lg hover:bg-indigo-700 transition duration-300 inline-block">
+                    Upload Resume (PDF or TXT)
+                </label>
+                <input type="file" id="resume-upload" class="hidden" accept=".pdf,.txt">
+                <p id="upload-status" class="text-sm text-gray-400 mt-4 h-5"></p>
+            </div>
+        </div>
+
+        <main class="grid grid-cols-1 md:grid-cols-3 gap-8">
+            <div class="md:col-span-1 glass-panel rounded-lg p-6">
+                <h2 class="text-2xl font-semibold text-white mb-4">Uploaded Resumes</h2>
+                <div id="resume-list" class="space-y-2">
+                    </div>
+            </div>
+
+            <div class="md:col-span-2 glass-panel rounded-lg p-6">
+                <h2 class="text-2xl font-semibold text-white mb-4">AI Analysis</h2>
+                <div id="features-panel" class="hidden">
+                    <p class="mb-4 text-gray-300">Select a feature to run on <strong id="selected-resume-name" class="text-indigo-400"></strong>:</p>
+                    <div id="features-buttons" class="flex flex-wrap gap-3 mb-6">
+                        <button onclick="runFeature('extract_skills')" class="feature-btn bg-green-600 hover:bg-green-700 text-white font-semibold py-2 px-4 rounded-md shadow-md">Extract Skills</button>
+                        <button onclick="runFeature('identify_verbs')" class="feature-btn bg-purple-600 hover:bg-purple-700 text-white font-semibold py-2 px-4 rounded-md shadow-md">Identify Action Verbs</button>
+                        <button onclick="runFeature('suggest_improvements')" class="feature-btn bg-yellow-600 hover:bg-yellow-700 text-gray-900 font-semibold py-2 px-4 rounded-md shadow-md">Suggest Improvements</button>
+                    </div>
+                    <div class="bg-gray-900 rounded-md p-4 min-h-[200px] max-h-[500px] overflow-y-auto">
+                        <pre id="ai-output-container" class="text-gray-300 whitespace-pre-wrap font-mono text-sm leading-relaxed"></pre>
+                    </div>
+                </div>
+                <div id="no-resume-selected" class="text-center text-gray-500 pt-10">
+                    <p>Select a resume from the list to begin analysis.</p>
+                </div>
+            </div>
+        </main>
+    </div>
+
+<script>
+    const uploadInput = document.getElementById('resume-upload');
+    const uploadStatus = document.getElementById('upload-status');
+    const resumeListDiv = document.getElementById('resume-list');
+    const featuresPanel = document.getElementById('features-panel');
+    const noResumeSelectedDiv = document.getElementById('no-resume-selected');
+    const selectedResumeNameSpan = document.getElementById('selected-resume-name');
+    const aiOutputContainer = document.getElementById('ai-output-container');
+    const featureButtons = document.querySelectorAll('#features-buttons button');
+
+    let activeResumeId = null;
+
+    async function loadResumes() {
+        try {
+            const response = await fetch('/get_resumes');
+            const resumes = await response.json();
+            resumeListDiv.innerHTML = '';
+            if (resumes.length === 0) {
+                resumeListDiv.innerHTML = '<p class="text-gray-500 text-sm">No resumes uploaded yet.</p>';
+                return;
+            }
+            resumes.forEach(resume => {
+                const resumeEl = document.createElement('div');
+                resumeEl.className = `resume-list-item p-3 rounded-md cursor-pointer border border-transparent ${resume.id === activeResumeId ? 'active' : ''}`;
+                resumeEl.textContent = resume.filename;
+                resumeEl.dataset.id = resume.id;
+                resumeEl.dataset.filename = resume.filename;
+                resumeEl.onclick = () => selectResume(resume.id, resume.filename);
+                resumeListDiv.appendChild(resumeEl);
+            });
+        } catch (error) {
+            console.error('Failed to load resumes:', error);
+            resumeListDiv.innerHTML = '<p class="text-red-400">Error loading resumes.</p>';
+        }
+    }
+
+    uploadInput.addEventListener('change', async () => {
+        const file = uploadInput.files[0];
+        if (!file) return;
+
+        uploadStatus.textContent = 'Uploading and processing...';
+        const formData = new FormData();
+        formData.append('resume', file);
+
+        try {
+            const response = await fetch('/upload', { method: 'POST', body: formData });
+            const result = await response.json();
+            if (!response.ok) {
+                throw new Error(result.error || 'Upload failed');
+            }
+            uploadStatus.textContent = result.message;
+            await loadResumes();
+            setTimeout(() => { uploadStatus.textContent = ''; }, 3000);
+        } catch (error) {
+            console.error('Upload error:', error);
+            uploadStatus.textContent = `Error: ${error.message}`;
+        } finally {
+            uploadInput.value = ''; // Reset file input
+        }
+    });
+
+    function selectResume(resumeId, filename) {
+        activeResumeId = resumeId;
+        noResumeSelectedDiv.classList.add('hidden');
+        featuresPanel.classList.remove('hidden');
+        selectedResumeNameSpan.textContent = filename;
+        aiOutputContainer.textContent = ''; // Clear previous output
+        document.querySelectorAll('.resume-list-item').forEach(el => {
+            el.classList.toggle('active', el.dataset.id == resumeId);
+        });
+    }
+
+    async function runFeature(featureName) {
+        if (!activeResumeId) {
+            alert('Please select a resume first.');
+            return;
+        }
+
+        aiOutputContainer.textContent = ''; // Clear previous output
+        featureButtons.forEach(btn => btn.disabled = true);
+        
+        try {
+            const response = await fetch('/run_feature', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ resume_id: activeResumeId, feature_name: featureName })
+            });
+
+            if (!response.body) {
+                throw new Error('Streaming response not supported.');
+            }
+
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                const chunk = decoder.decode(value, { stream: true });
+                aiOutputContainer.textContent += chunk;
+                 // Auto-scroll to the bottom
+                aiOutputContainer.parentElement.scrollTop = aiOutputContainer.parentElement.scrollHeight;
+            }
+
+        } catch (error) {
+            console.error('Feature execution error:', error);
+            aiOutputContainer.textContent = `Error: ${error.message}`;
+        } finally {
+            featureButtons.forEach(btn => btn.disabled = false);
+        }
+    }
+
+    // Initial load
+    window.addEventListener('load', loadResumes);
+</script>
+</body>
+</html>
