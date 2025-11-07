@@ -64,7 +64,7 @@ This is a full-stack application that allows users to upload a resume, store its
     ```
 
 5.  **Access the Application:**
-    * Open your web browser and navigate to `http://localhost:5000`.
+    * Open your web browser and navigate to `http://localhost:5050`.
     * You should see the application UI, ready for you to upload a resume.
 
 ## How to Add New "Features"
